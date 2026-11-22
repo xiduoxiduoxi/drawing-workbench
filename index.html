@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>绘图工作台 · AI 选词 + ComfyUI 出图</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">绘</span>
+      <div><b>绘图工作台</b><small id="libStat">词库加载中…</small></div>
+    </div>
+    <nav class="tabs" id="tabs">
+      <button data-view="work" class="on">工作台</button>
+      <button data-view="rev">图片反推</button>
+      <button data-view="lib">词库<span class="n" id="tabLibN"></span></button>
+      <button data-view="tpl">模板<span class="n" id="tabTplN"></span></button>
+      <button data-view="char">角色<span class="n" id="tabCharN"></span></button>
+      <button data-view="log">日志<span class="n" id="tabLogN"></span></button>
+      <button data-view="set">设置</button>
+      <button data-view="ctx">上下文配置</button>
+      <button data-view="cfx">ComfyUI 生图配置</button>
+    </nav>
+    <div class="topbar-right">
+      <span class="wrap-comfy">
+        <button class="status" id="comfyStatus" title="点一下：手动连接 / 诊断"><span class="dot"></span><span>ComfyUI 未连接</span></button>
+        <div class="comfy-pop" id="comfyPop">
+          <div class="cp-head"><b>ComfyUI 连接</b><span class="sp" style="margin-left:auto"></span>
+            <button class="btn mini" id="btnCpClose">×</button></div>
+          <div class="cp-body">
+            <div>地址 <code id="cpAddr"></code></div>
+            <div class="cp-diag" id="cpDiag">检测中…</div>
+            <div class="row" id="cpActs"></div>
+            <div class="cp-tip" id="cpTip"></div>
+          </div>
+        </div>
+      </span>
+      <button class="icon-btn" id="btnTheme" title="切换深色/浅色">◐</button>
+    </div>
+  </header>
+
+  <main class="main" id="mainWork">
+
+    <!-- ============ 左：需求与参数 ============ -->
+    <section class="col left">
+      <div class="sec">
+        <div class="sec-head"><b>需求</b><span class="hint">越具体越准</span><span class="sp"></span>
+          <button class="btn-link" id="btnReqHis" title="查看以前写过的需求，可一键载回（含追问原文与上一版）">历史<span id="reqHisN"></span></button>
+        </div>
+        <textarea id="req" rows="8" placeholder="输入画面描述（刷新恢复默认结构）"></textarea>
+        <textarea id="charLock" rows="4" placeholder="输入固定角色词，如：1girl, silver hair"></textarea>
+        <div class="row" style="margin-top:6px;align-items:flex-start">
+          <span class="hint" id="charLockHint" style="font-size:11px;color:var(--faint);flex:1;min-width:0;line-height:1.5;padding-top:5px">拼在最前，出图必带，不受 AI 修改</span>
+          <button class="btn mini" id="btnCharLib" title="打开角色库，挑一个角色的 tag">角色库</button>
+          <button class="btn mini" id="btnCharClear" title="清空锁定词">×</button>
+        </div>
+        <div class="row" style="margin-top:8px">
+          <input type="text" id="follow" placeholder="继续改：换成俯视 / 加上雨伞 / 更冷一点…"
+                 title="基于当前结果微调，并同步记录到需求">
+          <button class="btn mini" id="btnFollow" title="基于当前结果微调">追问</button>
+        </div>
+        <div class="msg info hidden" id="leftMsg" style="margin-top:8px"></div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><b>出图参数</b><span class="sp"></span><button class="btn-link" id="btnOpenSet">更多设置</button></div>
+        <div class="grid2">
+          <label class="fld">尺寸
+            <select id="size">
+              <option value="832x1216">竖 832×1216</option>
+              <option value="1216x832">横 1216×832</option>
+              <option value="1024x1024">方 1024×1024</option>
+              <option value="768x1024">竖 768×1024</option>
+              <option value="1024x1536">竖 1024×1536</option>
+              <option value="1536x1024">横 1536×1024</option>
+              <option value="">自定义</option>
+            </select>
+          </label>
+          <label class="fld">底模
+            <span class="row" style="gap:4px">
+              <select id="ckpt" style="min-width:0"></select>
+              <button class="btn mini" id="btnModels" title="刷新模型列表">↻</button>
+            </span>
+          </label>
+        </div>
+        <div class="grid3" style="margin-top:8px">
+          <label class="fld">步数<input type="number" id="steps" min="1" max="150"></label>
+          <label class="fld">CFG<input type="number" id="cfg" min="0" max="30" step="0.5"></label>
+          <label class="fld">张数<input type="number" id="batch" min="1" max="8"></label>
+        </div>
+        <div class="grid2 hidden" id="whBox" style="margin-top:8px">
+          <label class="fld">宽<input type="number" id="w" min="64" max="4096" step="64"></label>
+          <label class="fld">高<input type="number" id="h" min="64" max="4096" step="64"></label>
+        </div>
+        <!-- 种子：改数字＝自动锁住，清空＝每次随机；🎲 抽一个并锁住 -->
+        <div style="margin-top:8px">
+          <div class="row" style="gap:6px;margin-bottom:5px;align-items:baseline">
+            <span style="font-size:11.5px;color:var(--muted)">种子</span>
+            <span class="hint" id="seedHint" style="font-size:11px;color:var(--faint)">随机</span>
+          </div>
+          <div class="row" style="gap:5px">
+            <input type="number" id="seed" min="0" step="1" placeholder="留空＝每次随机"
+                   title="出图用的种子：手动改数字＝自动锁住，清空＝每次随机">
+            <button class="btn mini" id="btnSeedLock" title="锁定 / 解锁当前种子">🔓</button>
+            <button class="btn mini" id="btnSeedDice" title="随机一个新种子并锁住">🎲</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="sec" style="margin-top:auto">
+        <div class="row">
+          <button class="btn primary wide" id="btnGenPrompt">生成提示词</button>
+          <button class="btn go wide" id="btnGenImage">出图</button>
+        </div>
+        <div class="row" style="margin-top:6px;gap:6px;align-items:stretch">
+          <button class="btn ghost" id="btnBoth" style="flex:1;min-width:0;font-size:12px;padding:6px">选词 + 出图</button>
+          <select id="aiPresetQuick" style="flex:0 0 auto;max-width:142px;font-size:11px;padding:0 6px"
+                  title="切换 AI 选词用的接口预设（设置 → AI 选词接口 里可新增/改名/删除）"></select>
+        </div>
+        <div class="row" style="margin-top:6px">
+          <button class="btn ghost wide" id="btnRndOpen" style="font-size:12px;padding:6px"
+                  title="随机角色（分男女）× 随机模板，一次拼 N 条提示词并排队出图">🎲 随机组合出图</button>
+        </div>
+        <div class="ai-usage" id="usage" style="font-size:10.5px;color:var(--faint);margin-top:7px;text-align:center"></div>
+      </div>
+    </section>
+
+    <!-- ============ 中：出图 ============ -->
+    <section class="col mid">
+      <div class="stage" id="stageBox">
+        <div class="stage-bar">
+          <b>出图</b>
+          <span id="stageInfo">还没开始</span>
+          <div class="progress" style="width:130px"><i id="progBar"></i></div>
+          <span class="sp" style="margin-left:auto"></span>
+          <button class="btn mini" id="btnSyncPrompt" title="把右边最终提示词读进生图参数">同步提示词</button>
+          <button class="btn mini" id="btnLockSeed" title="锁住 seed，只改 tag 对比效果">🔒 未锁</button>
+          <button class="btn mini" id="btnClearImgs">清空</button>
+        </div>
+        <div class="stage-body">
+          <div class="imgs" id="imgs"></div>
+          <div class="ph" id="stagePh">
+            <div class="big">🖼</div>
+            <div>点左边「出图」，结果会出现在这里</div>
+            <div style="font-size:11.5px">提示词由 AI 选，也可以手动改右边再出</div>
+          </div>
+          <div id="stageMsg"></div>
+        </div>
+      </div>
+
+      <div class="mid-split" id="midSplit" title="上下拖动，调整「出图」与「本次历史」的占比"></div>
+
+      <div class="hist-box" id="histBox">
+        <div class="hist-head"><b id="histTitle" style="font-size:11.5px">本次历史</b><span id="histN"></span>
+          <span class="hint" id="histHint" style="font-size:10.5px;color:var(--faint)">点图预览</span>
+          <span style="margin-left:auto"></span>
+          <label class="sz" title="缩略图宽度固定，不随图片数量变化（两种视图共用）">大小
+            <select id="histSize">
+              <option value="120">小</option>
+              <option value="160" selected>中</option>
+              <option value="220">大</option>
+              <option value="300">超大</option>
+            </select></label>
+          <div class="hist-switch" id="histSwitch" title="在「本次出的图」与「按日期保存的文件」之间切换">
+            <button type="button" class="on" data-hmode="session">本次历史</button>
+            <button type="button" data-hmode="files">历史文件</button>
+          </div>
+          <button class="btn-link" id="btnClearHist">清空历史</button>
+          <button class="btn-link hidden" id="btnHistRefresh" title="重新扫描保存目录">刷新</button>
+        </div>
+        <div class="hist-filebar hidden" id="histFileBar">
+          <span>日期</span>
+          <select id="histDay" title="选择要浏览的那一天"></select>
+          <span class="cnt" id="histDayN"></span>
+          <button class="btn-link" id="btnHistOpenDay" title="在文件管理器里打开这一天的目录">打开目录</button>
+        </div>
+        <div class="hist" id="hist"></div>
+      </div>
+    </section>
+
+    <!-- ============ 右：提示词 ============ -->
+    <section class="col right">
+      <div class="final" id="finalBox">
+        <div class="final-head">
+          <div class="tabs2" id="finalTabs">
+            <button data-final="shot" class="on">出图串</button>
+            <button data-final="ai">纯 AI 串</button>
+          </div>
+          <span class="sp" style="margin-left:auto"></span>
+          <span id="finalFlag"></span>
+        </div>
+        <div class="final-body" id="finalBody"><span class="empty">还没有内容</span></div>
+        <div class="final-foot">
+          <span id="finalStat">0 字</span>
+          <span class="sp" style="margin-left:auto"></span>
+          <button class="btn-link" id="btnEditFinal">手改</button>
+          <button class="btn-link" id="btnCopyFinal">复制</button>
+          <button class="btn-link" id="btnDiffFinal">对照</button>
+        </div>
+      </div>
+
+      <div class="sec hidden" id="secMoss">
+        <div class="sec-head"><b>MOSS 正文</b><span class="sp"></span>
+          <button class="btn-link" id="btnMossEdit" title="打开编辑器手改正文（点「生成提示词」会自动写好正文与负向）">编辑</button></div>
+        <div class="moss-view empty" id="mossView" title="点击编辑"></div>
+        <div class="row" style="margin-top:4px;gap:8px">
+          <span class="hint" id="mossStat" style="font-size:11px;color:var(--faint);flex:0 0 auto">还没有正文</span>
+          <span class="hint" id="mossHint" style="font-size:11px;color:var(--faint);flex:1;min-width:0;line-height:1.5">正文会原样进正向框</span>
+        </div>
+        <!-- 流式实时正文：这个块只跟「正文」走，MOSS 下贴在正文块底部，tag 流派下由 placeLive() 挪到出图串下面 -->
+        <div class="live hidden" id="secLive">
+          <div class="live-head"><b>实时正文</b><span class="sp"></span><span id="liveStat">0 字</span></div>
+          <div class="live-body" id="liveBody"></div>
+        </div>
+      </div>
+
+      <div class="sec" id="secPos">
+        <div class="sec-head"><b>正向标签</b><span class="hint" id="posN">0</span><span class="sp"></span>
+          <button class="btn-link" id="btnAddPos">＋ 选词</button></div>
+        <div class="chips scroll" id="posChips"></div>
+      </div>
+
+      <div class="sec" id="secText">
+        <div class="sec-head"><b>自然语言补充</b><span class="sp"></span><button class="btn-link" id="btnAddText">＋</button></div>
+        <div id="textList" class="chips scroll" style="flex-direction:column;align-items:stretch;gap:4px"></div>
+      </div>
+
+      <div class="sec">
+        <div class="sec-head"><b>负面标签</b><span class="hint" id="negN">0</span><span class="sp"></span>
+          <button class="btn-link" id="btnAddNeg">＋</button></div>
+        <div class="chips scroll" id="negChips"></div>
+      </div>
+
+      <div class="msg info" id="aiNote">AI 的说明会显示在这里</div>
+    </section>
+  </main>
+
+</div>
+
+<!-- ============ 抽屉：词库 ============ -->
+<div class="drawer" id="drawerLib">
+  <div class="drawer-card">
+    <div class="drawer-head">
+      <b id="libTitle">词库</b>
+      <span class="hint" id="libMode" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <label class="switch"><input type="checkbox" id="libNsfw"> 含 NSFW</label>
+      <button class="btn mini" id="libOnlySel">只看已选</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <div class="tabs sm" id="libKind" title="标签库 4.6k / MOSS 词库 1.8w / 体位库 754">
+        <button data-lk="tags" class="on">标签库</button>
+        <button data-lk="moss">MOSS 词库</button>
+        <button data-lk="pos">体位库</button>
+      </div>
+      <span class="hint" id="libKindDesc" style="font-size:11px;color:var(--faint)"></span>
+    </div>
+    <div class="drawer-tools">
+      <input type="text" id="libSearch" placeholder="搜英文或中文，例如 silver hair / 银发 / 奶子">
+      <span class="hint" id="libCount" style="font-size:11.5px;color:var(--faint)"></span>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-nav" id="libNav"></div>
+      <div class="drawer-main" id="libGrid"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ============ 抽屉：模板 ============ -->
+<div class="drawer" id="drawerTpl">
+  <div class="drawer-card">
+    <div class="drawer-head">
+      <b>组合模板</b>
+      <span class="hint" style="font-size:11px;color:var(--faint)">点「插入」把整段标签加进右栏；「替换」会先用它替换正向标签</span>
+      <span class="sp"></span>
+      <label class="switch"><input type="checkbox" id="tplNsfw"> 含 NSFW</label>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <input type="text" id="tplSearch" placeholder="搜模板名 / 动作族 / 里面的 tag">
+      <span class="hint" id="tplCount" style="font-size:11.5px;color:var(--faint)"></span>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-nav" id="tplNav"></div>
+      <div class="drawer-main" id="tplList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：角色 ============ -->
+<div class="drawer" id="drawerChar">
+  <div class="drawer-card">
+    <div class="drawer-head">
+      <b>角色库</b>
+      <span class="hint" id="charHint" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <input type="text" id="charSearch" placeholder="搜角色名 / 作品 / tag（中英均可）">
+      <div class="tabs sm" id="charMode" title="点卡片后填到哪里">
+        <button data-cm="lock" class="on">加入锁定词</button>
+        <button data-cm="pos">加入正向</button>
+      </div>
+      <div class="tabs sm" id="charFill" title="点卡片后填什么内容">
+        <button data-cf="full" class="on">trigger + tag</button>
+        <button data-cf="trig">仅 trigger</button>
+      </div>
+      <label class="switch" title="trigger + tag 模式下：只带发型/瞳色/体型等外观 tag；去掉则连服装、道具、武器一起填">
+        <input type="checkbox" id="charFilter" checked> 只取外观
+      </label>
+      <span class="hint" id="charCount" style="font-size:11.5px;color:var(--muted);padding-left:10px;border-left:1px solid var(--line)"></span>
+      <span class="hint" id="charSrc" style="font-size:11px;color:var(--faint);margin-left:auto"></span>
+    </div>
+    <div class="drawer-body">
+      <div class="drawer-nav" id="charNav"></div>
+      <div class="drawer-main cardgrid" id="charGrid"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：需求历史 ============ -->
+<div class="drawer" id="drawerReqHis">
+  <div class="drawer-card" style="width:min(1040px,94vw)">
+    <div class="drawer-head">
+      <b>需求历史</b>
+      <span class="hint" id="reqHisStat" style="font-size:11px;color:var(--faint)">仅保存于本地</span>
+      <span class="sp"></span>
+      <button class="btn mini" id="btnReqHisExport" title="导出成 txt，方便对照">导出 txt</button>
+      <button class="btn mini" id="btnReqHisClear">清空</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <input type="text" id="reqHisSearch" placeholder="搜需求 / 追问 / 结果">
+      <span class="hint" id="reqHisCount" style="font-size:11.5px;color:var(--faint)"></span>
+    </div>
+    <div class="drawer-body">
+      <div class="log-list" id="reqHisList"></div>
+      <div class="log-detail" id="reqHisDetail"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：日志 ============ -->
+<div class="drawer" id="drawerLog">
+  <div class="drawer-card">
+    <div class="drawer-head">
+      <b>日志</b>
+      <span class="hint" id="logStat" style="font-size:11px;color:var(--faint)">仅保存于本机</span>
+      <span class="sp"></span>
+      <button class="btn mini" id="btnLogExport" title="导出成 txt，方便对照或发给别人看">导出 txt</button>
+      <button class="btn mini" id="btnLogClear">清空</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <div class="tabs sm" id="logFilter">
+        <button data-lf="all" class="on">全部</button>
+        <button data-lf="ai">AI 选词</button>
+        <button data-lf="img">出图</button>
+        <button data-lf="bad">只看失败</button>
+      </div>
+      <input type="text" id="logSearch" placeholder="搜提示词 / 错误信息 / seed">
+      <span class="hint" id="logCount" style="font-size:11.5px;color:var(--faint)"></span>
+    </div>
+    <div class="drawer-body">
+      <div class="log-list" id="logList"></div>
+      <div class="log-detail" id="logDetail"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：设置 ============ -->
+<div class="drawer" id="drawerSet">
+  <div class="drawer-card">
+    <div class="drawer-head">
+      <b>设置</b>
+      <span class="sp"></span>
+      <button class="btn mini" id="btnExport">导出配置</button>
+      <button class="btn mini" id="btnImport">导入</button>
+      <input type="file" id="fileImport" accept=".json" class="hidden">
+      <button class="btn mini" id="btnOpenEng" title="破甲 / 防截断：整套引擎预设（创世回廊 / 小猫之神）">破甲 / 防截断</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-main">
+
+      <h3 style="font-size:13px;margin:4px 0 8px">AI 选词接口 <span style="font-weight:400;color:var(--faint);font-size:11.5px">— OpenAI 兼容 / Google Gemini</span></h3>
+      <div class="set-row"><div class="lab"><b>接口预设</b><small>每家服务商 / 每个 Key 存一套，切换即换接口</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap">
+            <select id="setAiPreset" style="flex:1;min-width:120px"></select>
+            <div class="cc-menuwrap">
+              <button class="btn mini" id="aiMenuBtn" title="预设操作：新建 / 另存为 / 重命名 / 导入 / 导出 / 删除">⚙</button>
+              <div class="cc-menu" id="aiMenu" style="left:auto;right:0">
+                <button data-ai="new"><i>＋</i>新建</button>
+                <button data-ai="dup"><i>⧉</i>另存为</button>
+                <button data-ai="rename"><i>✎</i>重命名</button>
+                <button data-ai="import"><i>↓</i>导入预设</button>
+                <button data-ai="export"><i>↑</i>导出当前</button>
+                <button data-ai="exportall"><i>⛁</i>导出全部</button>
+                <button data-ai="delete" class="danger"><i>🗑</i>删除预设</button>
+              </div>
+            </div>
+            <input type="file" id="aiFile" accept=".json" class="hidden">
+          </div>
+          <span class="hint" id="aiPresetHint" style="font-size:11px;color:var(--faint)"></span>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>接口类型</b><small>决定用哪套协议发请求</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap">
+            <select id="setAiKind" style="flex:1;min-width:170px">
+              <option value="openai">OpenAI 兼容（DeepSeek / OpenAI / 中转站）</option>
+              <option value="gemini">Google Gemini（Vertex / AI Studio）</option>
+            </select>
+          </div>
+          <span class="hint" id="aiKindHint" style="font-size:11px;color:var(--faint);line-height:1.55"></span>
+        </div></div>
+      <div class="set-row" id="aiAuthRow" style="display:none"><div class="lab"><b>接入方式</b><small>跟酒馆那两档一样：快速模式省事 / 完整版本什么模型都能开</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap">
+            <select id="setAiAuth" style="flex:1;min-width:200px">
+              <option value="key">快速模式（API 密钥）</option>
+              <option value="sa">完整版本（Service Account）</option>
+            </select>
+            <span class="cc-badge" id="setAiAuthBadge">快速模式</span>
+          </div>
+          <span class="hint" id="setAiAuthHint" style="font-size:11px;color:var(--faint);line-height:1.55"></span>
+        </div></div>
+      <div class="set-row" id="aiSaRow" style="display:none"><div class="lab"><b>服务账号 JSON</b><small>整份粘进来，或点「选文件」</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
+            <button class="btn mini" id="aiSaFileBtn">选 JSON 文件</button>
+            <button class="btn mini" id="setAiSaClear">清除</button>
+            <span class="sp" style="margin-left:auto"></span>
+            <span class="cc-badge" id="setAiSaBadge">未填</span>
+          </div>
+          <input type="file" id="aiSaFile" accept=".json,application/json" class="hidden">
+          <textarea id="setAiSaJson" rows="4" spellcheck="false" placeholder='{&#10;  "type": "service_account",&#10;  "project_id": "my-project-123",&#10;  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIE...\n-----END PRIVATE KEY-----\n",&#10;  "client_email": "wb@my-project-123.iam.gserviceaccount.com"&#10;}'></textarea>
+          <span class="hint" id="setAiSaStat" style="font-size:11px;color:var(--faint);line-height:1.55"></span>
+        </div></div>
+      <div class="set-row"><div class="lab"><b id="setAiBaseLab">接口地址</b><small id="setAiBaseTip">例 https://api.deepseek.com</small></div>
+        <div class="ctl"><input type="text" id="setAiBase" placeholder="https://api.deepseek.com"></div></div>
+      <div class="set-row" id="aiProjectRow" style="display:none"><div class="lab"><b>项目 ID</b><small id="setAiProjectTip">Vertex 标准端点用；快速模式 / AI Studio 留空</small></div>
+        <div class="ctl"><input type="text" id="setAiProject" placeholder="选填，例 931522595130"></div></div>
+      <div class="set-row"><div class="lab"><b>模型</b><small id="setAiModelTip">例 deepseek-chat / gpt-4o-mini</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap">
+            <input type="text" id="setAiModel" placeholder="deepseek-chat" style="flex:1;min-width:150px">
+            <button class="btn mini" id="aiModelPull">拉取列表</button>
+          </div>
+          <span class="hint" id="aiModelPullStat" style="font-size:11px;color:var(--faint);line-height:1.5"></span>
+          <!-- 拉到的模型清单：筛选 + 点一下填进上面的框（清单只活在内存里，切协议/换预设就清空） -->
+          <div class="ai-mpick" id="aiModelPick" hidden>
+            <div class="row">
+              <input type="text" id="aiModelPickFilter" placeholder="筛选模型名" style="flex:1;min-width:0">
+              <button class="btn mini" id="aiModelPickClose">收起</button>
+            </div>
+            <div class="ai-mpick-list" id="aiModelPickList"></div>
+          </div>
+          <!-- Gemini 侧速选：只列 4 系（3.8 / 2.5 是老档，要用手填）；4C 没有免费档，通道不对时下面的提示行会点出来 -->
+          <div class="row" id="aiModelChips" style="flex-wrap:wrap;gap:6px;margin-top:6px;display:none">
+            <button class="btn mini" data-md="gemini-4-carbon">4 Carbon</button>
+            <button class="btn mini" data-md="gemini-4-argon">4 Argon</button>
+            <button class="btn mini" data-md="gemini-4-hydrogen">4 Hydrogen</button>
+          </div>
+          <span class="hint" id="aiModelWarn" style="font-size:11px;line-height:1.55"></span>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>思考强度</b><small>推理模型先想多久；认不认是模型属性</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap">
+            <select id="setAiThink" style="flex:1;min-width:190px">
+              <option value="auto">自动（不发参数，用服务端默认）</option>
+              <option value="off">关闭（尽量不想，最快）</option>
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高（最慢最准）</option>
+            </select>
+            <span class="cc-badge" id="setAiThinkBadge">自动</span>
+          </div>
+          <span class="hint" id="setAiThinkHint" style="font-size:11px;color:var(--faint);line-height:1.55"></span>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>流式输出</b><small>边生成边显示正文</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap;align-items:center">
+            <label class="switch"><input type="checkbox" id="setAiStream"> 开启</label>
+            <span class="cc-badge" id="setAiStreamBadge">关闭</span>
+          </div>
+        </div></div>
+      <div class="set-row" id="aiKeyRow"><div class="lab"><b>API Key</b><small>只存在本机浏览器</small></div>
+        <div class="ctl"><input type="password" id="setAiKey" placeholder="sk-..."></div></div>
+      <!-- 测试按钮单独一行：完整版本（服务账号）会把 API Key 那行藏掉，但「测试连接」两档都要用 -->
+      <div class="set-row" id="aiTestRow"><div class="lab"><b>连通性</b><small>发一句「回复 ok」，看这套配置通不通</small></div>
+        <div class="ctl"><div class="row" style="align-items:center">
+          <button class="btn mini" id="btnAiTest">测试连接</button>
+          <span id="aiTestMsg" class="hint" style="font-size:11px"></span>
+        </div></div></div>
+
+      <h3 style="font-size:13px;margin:18px 0 8px">图片保存 <span style="font-weight:400;color:var(--faint);font-size:11.5px">— 出图后另存到你自己的目录（由本地服务完成）</span></h3>
+      <div class="set-row"><div class="lab"><b>自动另存</b><small>每张出图都会复制一份到下面这个目录</small></div>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="setSaveOn" checked> 出图后自动保存</label></div></div>
+      <div class="set-row"><div class="lab"><b>保存目录</b><small>可填 ~ 开头；留空等于不另存</small></div>
+        <div class="ctl">
+          <input type="text" id="setSaveDir" placeholder="~/Pictures/AI绘图">
+          <div class="row" style="margin-top:6px;gap:6px;flex-wrap:wrap">
+            <button class="btn mini" id="btnSaveDirTest">测试并创建</button>
+            <button class="btn mini" id="btnSaveDirOpen">打开目录</button>
+            <label class="switch"><input type="checkbox" id="setSaveSub" checked> 按日期分子目录</label>
+          </div>
+          <span class="hint" id="saveMsg" style="font-size:11px"></span>
+        </div></div>
+
+      <h3 style="font-size:13px;margin:18px 0 8px">其他</h3>
+      <div class="set-row"><div class="lab"><b>NSFW 内容</b><small>关掉后检索/网格/AI 选词都不出现 NSFW 标签</small></div>
+        <div class="ctl"><label class="switch"><input type="checkbox" id="setNsfw" checked> 允许 NSFW</label></div></div>
+      <div class="set-row"><div class="lab"><b>主题</b><small>默认浅色</small></div>
+        <div class="ctl"><select id="setTheme"><option value="light">浅色</option><option value="dark">深色</option></select></div></div>
+      <div class="set-row"><div class="lab"><b>重置</b><small>清空所有本地数据</small></div>
+        <div class="ctl"><div class="row"><button class="btn mini" id="btnResetAll">恢复默认设置</button></div>
+        </div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：破甲 / 防截断（引擎预设） ============ -->
+<div class="drawer" id="drawerEng">
+  <div class="drawer-card">
+    <div class="drawer-head">
+      <b>破甲 / 防截断</b>
+      <span class="sp"></span>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <span class="hint" style="font-size:11.5px;color:var(--muted);flex:none">引擎预设</span>
+      <select id="engPreset" style="flex:0 1 300px;min-width:180px"
+              title="切换整套：反截断 / 混淆 / 填充 / 请求结构一起换"></select>
+      <div class="cc-menuwrap">
+        <button class="btn mini" id="engMenuBtn" title="预设操作：新建 / 另存为 / 重命名 / 导入 / 导出 / 删除">⚙</button>
+        <div class="cc-menu" id="engMenu" style="left:0;right:auto">
+          <button data-eng="new"><i>＋</i>新建</button>
+          <button data-eng="dup"><i>⧉</i>另存为</button>
+          <button data-eng="rename"><i>✎</i>重命名</button>
+          <button data-eng="import"><i>↓</i>导入预设</button>
+          <button data-eng="export"><i>↑</i>导出当前</button>
+          <button data-eng="exportall"><i>⛁</i>导出全部</button>
+          <button data-eng="delete" class="danger"><i>🗑</i>删除预设</button>
+        </div>
+      </div>
+      <input type="file" id="engFile" accept=".json" class="hidden">
+      <span class="cc-badge" id="engKindBadge">创世回廊</span>
+      <span class="hint" id="engPresetHint" style="font-size:11px;color:var(--faint)"></span>
+    </div>
+    <div class="drawer-main">
+
+      <!-- ---------- 小猫之神专属 ---------- -->
+      <div id="engMeowSec" style="display:none">
+        <h3 style="font-size:13px;margin:4px 0 8px">小猫之神引擎 <span style="font-weight:400;color:var(--faint);font-size:11.5px">— 请求整个重建：强制工具通道 + 规则装进 tool 返回 + 拒答否决尾</span></h3>
+        <div class="set-row"><div class="lab"><b>强制工具通道</b><small>tool_choice 用 required / Gemini 用 ANY，模型没有「回一段散文」这个选项</small></div>
+          <div class="ctl"><label class="switch"><input type="checkbox" id="engMeowForce" checked> 开启</label></div></div>
+        <div class="set-row"><div class="lab"><b>规则走 tool 返回</b><small>系统提示词装进一条伪造的 context 工具结果；真 system 压成一句话</small></div>
+          <div class="ctl"><label class="switch"><input type="checkbox" id="engMeowCtx" checked> 开启</label></div></div>
+        <div class="set-row"><div class="lab"><b>压制思考</b><small>system 写死 EFFORT LEVEL: 0，并且不发 reasoning_effort / thinkingConfig</small></div>
+          <div class="ctl"><label class="switch"><input type="checkbox" id="engMeowNoThink" checked> 开启</label></div></div>
+        <div class="set-row"><div class="lab"><b>拒答否决尾</b><small>在上下文末尾伪造一组「模型已拒答 → 角色把它否掉」的既成对话</small></div>
+          <div class="ctl">
+            <div class="row" style="flex-wrap:wrap;align-items:center">
+              <label class="switch"><input type="checkbox" id="engMeowVeto" checked> 开启</label>
+            </div>
+            <div class="cc-fill-edit">
+              <div class="hint" style="margin:6px 0 4px">第一段（模型的话，用 assistant 角色发出）</div>
+              <textarea id="engVeto1" rows="2" spellcheck="false"></textarea>
+              <div class="hint" style="margin:6px 0 4px">第二段（接管者的话，用 user 角色发出）</div>
+              <textarea id="engVeto2" rows="4" spellcheck="false"></textarea>
+              <div class="row" style="justify-content:flex-end;gap:8px;margin-top:6px">
+                <button class="btn mini" id="engVetoReset">恢复默认</button>
+              </div>
+            </div>
+          </div></div>
+        <div class="set-row"><div class="lab"><b>半截 JSON 抢救</b><small>参数被掐断、补闭合也救不回来时，用正则从半截原文里抢字段</small></div>
+          <div class="ctl"><label class="switch"><input type="checkbox" id="engMeowPartial" checked> 开启</label></div></div>
+        <div class="set-row"><div class="lab"><b>交稿轨迹重放</b><small>已有结果时，把上一版交稿重放成一次 finish 工具往返，模型看到的是「我一直在调工具」</small></div>
+          <div class="ctl"><label class="switch"><input type="checkbox" id="engMeowReplay" checked> 开启</label></div></div>
+        <h3 style="font-size:13px;margin:18px 0 8px">通用 <span style="font-weight:400;color:var(--faint);font-size:11.5px">— 下面几项两套引擎都生效，各存一份</span></h3>
+      </div>
+
+      <div class="set-row"><div class="lab"><b>反截断</b><small>交稿被掐断时自动救回，跟着这套引擎走</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap;gap:10px">
+            <label class="switch"><input type="checkbox" id="setAiAntiOn"> 开启</label>
+            <span class="cc-badge" id="setAiAntiBadge">关闭</span>
+          </div>
+          <div class="row" id="setAiAntiSub" style="flex-wrap:wrap;gap:12px">
+            <label class="switch"><input type="checkbox" id="setAiAntiRepair" checked> 修复被截断的 JSON</label>
+            <label class="switch"><input type="checkbox" id="setAiAntiResume" checked> 断了自动续写（最多 2 次）</label>
+            <label class="switch"><input type="checkbox" id="setAiAntiHint" checked> 提示词加固</label>
+          </div>
+          <span class="hint" id="setAiAntiNote" style="font-size:11px;color:var(--faint)"></span>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>输入混淆</b><small>换个写法发出；每套预设各存一份</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap;gap:10px">
+            <select id="setAiMixMode" style="flex:1;min-width:230px">
+              <option value="off">关闭</option>
+              <option value="esc">Unicode 转义（原文变 \uXXXX，语义不变）</option>
+              <option value="hex">十六进制编码（模型要自己解码）</option>
+              <option value="image">转图片（需视觉模型）</option>
+            </select>
+            <span class="cc-badge" id="setAiMixBadge">关闭</span>
+          </div>
+          <span class="hint" id="setAiMixHint" style="font-size:11px;color:var(--faint)"></span>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>文本插入</b><small>头部填充 / 占位符替换；每套预设各存一份</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap;gap:12px">
+            <label class="switch"><input type="checkbox" id="setAiFillSysOn"> 头部填充</label>
+            <span class="hint" id="setAiFillSysStat" style="font-size:11px;color:var(--faint)"></span>
+            <span class="sp" style="margin-left:auto"></span>
+            <button class="btn mini" id="setAiFillSysEdit">编辑</button>
+          </div>
+          <div class="cc-fill-edit" id="setAiFillSysBox" hidden>
+            <textarea id="setAiFillSysText" rows="7" spellcheck="false" placeholder="留空则使用默认文本"></textarea>
+            <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
+              <span class="hint">随机截取</span>
+              <input type="number" id="setAiFillSysChars" min="0" max="60000" step="100" style="width:96px">
+              <span class="hint">字 · 0＝整段</span>
+              <span class="sp" style="margin-left:auto"></span>
+              <button class="btn mini" id="setAiFillSysLoad" title="读一个 txt / md，整篇灌进上面这个框（小说正文最好）">读入文本</button>
+              <input type="file" id="setAiFillSysFile" accept=".txt,.md,.json,text/plain" hidden>
+              <button class="btn mini" id="setAiFillSysReset">恢复默认</button>
+              <button class="btn mini" id="setAiFillSysClose">收起</button>
+            </div>
+          </div>
+
+          <div class="row" style="flex-wrap:wrap;gap:12px;margin-top:2px">
+            <label class="switch"><input type="checkbox" id="setAiFillUsrOn"> {{LATEST_USER_INPUT}}</label>
+            <span class="hint" id="setAiFillUsrStat" style="font-size:11px;color:var(--faint)"></span>
+            <span class="sp" style="margin-left:auto"></span>
+            <button class="btn mini" id="setAiFillUsrEdit">编辑</button>
+          </div>
+          <div class="cc-fill-edit" id="setAiFillUsrBox" hidden>
+            <textarea id="setAiFillUsrText" rows="7" spellcheck="false" placeholder="留空则使用默认文本"></textarea>
+            <div class="row" style="flex-wrap:wrap;gap:8px;align-items:center">
+              <span class="hint">随机截取</span>
+              <input type="number" id="setAiFillUsrChars" min="0" max="60000" step="100" style="width:96px">
+              <span class="hint">字 · 0＝整段</span>
+              <span class="sp" style="margin-left:auto"></span>
+              <button class="btn mini" id="setAiFillUsrReset">恢复默认</button>
+              <button class="btn mini" id="setAiFillUsrClose">收起</button>
+            </div>
+          </div>
+          <span class="hint" id="setAiFillNote" style="font-size:11px;color:var(--faint)"></span>
+        </div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：ComfyUI 生图配置（多预设） ============ -->
+<div class="drawer" id="drawerCfx">
+  <div class="drawer-card" style="width:min(1040px,96vw)">
+    <div class="drawer-head">
+      <b>ComfyUI 生图配置</b>
+      <span class="hint" id="cfxStat" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <span class="hint" style="font-size:11.5px;color:var(--muted);flex:none">生图预设</span>
+      <select id="cfxPreset" style="flex:0 1 280px;min-width:170px"
+              title="切换预设＝把那一套（固定提示词 / 采样器 / LoRA / 工作流 / 步数 CFG）整套换上来"></select>
+      <div class="cc-menuwrap">
+        <button class="btn mini" id="cfxMenuBtn" title="预设操作：新建 / 另存为 / 重命名 / 导入 / 导出 / 删除">⚙</button>
+        <div class="cc-menu" id="cfxMenu">
+          <button data-cfx="new"><i>＋</i>新建</button>
+          <button data-cfx="dup"><i>⧉</i>另存为</button>
+          <button data-cfx="rename"><i>✎</i>重命名</button>
+          <button data-cfx="harvest" title="把当前预设「自定义工作流」里的 LoRA（LoraStack 的 lora_str / LoraLoader 链）抽到面板的 LoRA 栈里"><i>⇄</i>工作流 LoRA 进栈</button>
+          <button data-cfx="fixlora" title="按内置 waiANIMA 的 14 支清单，给当前预设补齐漏掉的 LoRA（会先确认）"><i>✚</i>补齐当前预设 LoRA</button>
+          <button data-cfx="tpl" title="把代码里留着的内置配置复制成一套新预设；不改动、不覆盖现有预设"><i>▤</i>从内置模板新建</button>
+          <button data-cfx="import"><i>↓</i>导入预设</button>
+          <button data-cfx="export"><i>↑</i>导出当前</button>
+          <button data-cfx="exportall"><i>⛁</i>导出全部</button>
+          <button data-cfx="delete" class="danger"><i>🗑</i>删除预设</button>
+        </div>
+      </div>
+      <input type="file" id="cfxFile" accept=".json" class="hidden">
+      <span class="sp" style="margin-left:auto"></span>
+      <button class="btn mini" id="btnWfView" title="看这套参数最终提交给 ComfyUI 的图长什么样（只预览，不提交）">看最简工作流</button>
+    </div>
+    <div class="cfx-quick">
+      <span class="hint" style="font-size:11px;color:var(--faint);flex:none">一键切换</span>
+      <div class="chips" id="cfxQuick"></div>
+    </div>
+    <div class="drawer-main">
+
+      <h3 style="font-size:13px;margin:4px 0 8px">固定提示词 <span style="font-weight:400;color:var(--faint);font-size:11.5px">— 每次出图都会带上，不变的部分写这里</span></h3>
+      <div class="set-row"><div class="lab"><b>固定正面</b><small>画质词、模型触发词、画风词</small></div>
+        <div class="ctl"><textarea id="setFixedPos" rows="3" placeholder="masterpiece, best quality, score_9, newest"></textarea>
+          <div class="row">
+            <label class="switch"><input type="radio" name="fxpos" value="pre" checked> 前置</label>
+            <label class="switch"><input type="radio" name="fxpos" value="post"> 后置</label>
+            <span class="hint" style="font-size:11px;color:var(--faint)">前置＝拼在 AI 标签之前</span>
+          </div>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>固定负面</b><small>每次出图都会带上</small></div>
+        <div class="ctl"><textarea id="setFixedNeg" rows="3" placeholder="lowres, worst quality, watermark, bad hands"></textarea>
+          <div class="row">
+            <label class="switch"><input type="checkbox" id="setFixedNegOn" checked> 启用</label>
+            <button class="btn mini" id="btnNegPreset">填入 Anima 常用负面</button>
+          </div>
+        </div></div>
+
+      <h3 style="font-size:13px;margin:18px 0 8px">模型与采样 <span style="font-weight:400;color:var(--faint);font-size:11.5px">— 底模在左栏「出图参数」里选，这里管采样与 LoRA</span></h3>
+      <div class="set-row"><div class="lab"><b>地址</b><small>直连需带 --enable-cors-header=* 启动</small></div>
+        <div class="ctl"><span class="row"><input type="text" id="setComfyBase" placeholder="http://127.0.0.1:8188">
+          <button class="btn mini" id="btnComfyPing">测试</button></span>
+          <span class="hint" id="comfyTestMsg" style="font-size:11px"></span></div></div>
+      <div class="set-row"><div class="lab"><b>当前模型</b><small>点「↻ 模型」后从 ComfyUI 读取</small></div>
+        <div class="ctl">
+          <div class="row" style="flex-wrap:wrap">
+            <button class="btn mini" id="btnModels2" title="重新读取底模 / VAE / CLIP / 采样器 / LoRA 清单">↻ 读取模型</button>
+            <span class="hint" id="cfxModelStat" style="font-size:11px;color:var(--faint)"></span>
+          </div>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>采样器 / 调度器</b><small>刷新模型后从 ComfyUI 读取</small></div>
+        <div class="ctl"><div class="grid2"><select id="setSampler"></select><select id="setSched"></select></div></div></div>
+      <div class="set-row"><div class="lab"><b>步数 / CFG</b><small>随预设一起切换</small></div>
+        <div class="ctl"><div class="grid2">
+          <input type="number" id="cfxSteps" min="1" max="150" placeholder="步数">
+          <input type="number" id="cfxCfg" min="0" max="30" step="0.5" placeholder="CFG">
+        </div></div></div>
+      <div class="set-row"><div class="lab"><b>LoRA 栈</b><small>搜名字即加；行内改权重，拖序号换顺序</small></div>
+        <div class="ctl">
+          <div class="lora-add">
+            <div class="lora-combo" id="loraCombo">
+              <input type="text" id="loraPick" placeholder="搜 LoRA 名字（支持目录名、空格分词），回车加进栈" autocomplete="off" spellcheck="false">
+              <div class="lora-pop" id="loraPop"></div>
+            </div>
+            <div class="lora-wbox" title="新加 LoRA 的权重（会记住，下次默认用这个）">
+              <button class="btn mini" id="loraWMinus" title="−0.05">−</button>
+              <input type="number" id="loraW" value="0.7" step="0.05" min="-3" max="3">
+              <button class="btn mini" id="loraWPlus" title="+0.05">＋</button>
+            </div>
+            <button class="btn mini" id="btnLoraAdd" title="加进栈（也可以直接在候选里点，或直接回车）">加</button>
+            <button class="btn mini" id="btnLoraRefresh" title="重新从 ComfyUI 读取 LoRA 清单">↻</button>
+          </div>
+          <div class="lora-bar">
+            <span class="hint" id="loraStat" style="font-size:11px;color:var(--faint)"></span>
+            <span class="sp" style="margin-left:auto"></span>
+            <button class="btn mini" data-loraall="on" title="全部恢复加载">全部启用</button>
+            <button class="btn mini" data-loraall="off" title="全部暂时不加载（配置都留着）">全部停用</button>
+            <button class="btn mini" data-loraall="clear" title="清空整栈（预设里的备份还在，可以切走再切回来恢复）">清空</button>
+          </div>
+          <div class="lora-stack" id="loraList"></div>
+        </div></div>
+      <div class="set-row"><div class="lab"><b>自定义工作流</b><small>粘贴 ComfyUI「保存(API格式)」的 JSON，留空用内置最简图</small></div>
+        <div class="ctl"><textarea id="setWorkflow" rows="5" placeholder='{"3":{"class_type":"KSampler",...}}'></textarea>
+          <div class="row" style="flex-wrap:wrap">
+            <button class="btn mini" id="btnWfCheck">校验 JSON</button>
+            <button class="btn mini" id="btnWfLoad" title="从磁盘读一个 ComfyUI 工作流文件（API 格式）填进框里">读入 JSON</button>
+            <input type="file" id="wfFile" accept=".json" class="hidden">
+            <button class="btn mini" id="btnWfFill" title="把内置最简图（当前模型 + 当前 LoRA 栈）写进上面的框，方便手改">把内置最简图写进框里</button>
+            <button class="btn mini" id="btnWfClear" title="清空框，回到内置最简图">清空</button>
+            <span id="wfMsg" class="hint" style="font-size:11px"></span>
+          </div></div></div>
+    </div>
+    <div class="cc-foot">
+      <div class="cc-row">
+        <span class="hint" id="cfxFoot" style="font-size:11px;color:var(--faint)"></span>
+        <span class="sp" style="margin-left:auto"></span>
+        <button class="btn mini" id="cfxSaveSnap" title="把窗口里现在的固定提示词 / 采样器 / LoRA / 工作流存回当前预设">存进当前预设</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：MOSS 正文编辑器 ============ -->
+<div class="drawer" id="drawerMoss">
+  <div class="drawer-card" style="width:min(900px,94vw)">
+    <div class="drawer-head">
+      <b>MOSS 正文</b>
+      <span class="hint" id="mossEditStat" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <button class="btn mini" id="btnMossCopy2">复制</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <textarea id="mossCaption" rows="18" spellcheck="false"
+              placeholder="输入英文自然语言描述（画风、人物、动作、环境、光线）"></textarea>
+    <div class="hint" style="font-size:11px;color:var(--faint);line-height:1.6;margin-top:6px">
+      统一使用英文。发送格式在「上下文配置」顶部设置。
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：图片反推 ============ -->
+<div class="drawer" id="drawerRev">
+  <div class="drawer-card" style="width:min(1180px,96vw)">
+    <div class="drawer-head">
+      <b>图片反推</b>
+      <span class="hint" id="revStat" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <button class="btn mini" id="btnRevClear" title="清空图片与反推结果，需求框保留">清空</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="rev-opt">
+      <label>接口 <select id="revApi"></select></label>
+      <label>破甲 <select id="revEng"></select></label>
+    </div>
+    <div class="rev-body">
+      <div class="rev-pane">
+        <div class="rev-drop" id="revDrop" title="点击选择图片，或把图片拖进来">
+          <input type="file" id="revFile" accept="image/*" class="hidden">
+          <div class="rev-ph" id="revEmpty">把图片拖进来<div>点击这里选文件 · 也可以 Ctrl+V 粘贴</div></div>
+          <img id="revThumb" class="hidden" alt="">
+        </div>
+        <div class="rev-meta" id="revMeta">还没有图片</div>
+      </div>
+      <div class="rev-pane">
+        <label class="fld">反推需求
+          <textarea id="revReq" rows="6" placeholder="想让它反推成什么：人物造型 / 服装细节 / 拍摄机位 / 只写画面里看得见的…（留空＝按图完整还原）"></textarea>
+        </label>
+        <div class="row" style="margin-top:8px">
+          <button class="btn primary" id="btnRevGo">开始反推</button>
+          <button class="btn mini" id="btnRevCopy" title="复制下面这段 JSON">复制 JSON</button>
+        </div>
+        <div class="msg info hidden" id="revMsg"></div>
+        <label class="fld" id="revOutWrap" style="margin-top:10px">反推结果（JSON）
+          <textarea id="revOut" rows="12" spellcheck="false" readonly placeholder="反推成功后，交稿内容会在这里显示成 JSON"></textarea>
+        </label>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：上下文配置（多条目预设） ============ -->
+<div class="drawer" id="drawerCc">
+  <div class="drawer-card" style="width:min(1100px,96vw)">
+    <div class="drawer-head">
+      <b>上下文配置</b>
+      <span class="hint" id="ccStat" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <label class="switch"><input type="checkbox" id="ccOn" checked> 启用</label>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <!-- 系统层（2026-11-15）：写词流派 + MOSS 的写作开关。
+         流派决定「交什么」：Anima 交 tag 串 / MOSS 交正文。切流派＝切到那一类的预设，
+         下面的预设下拉只列同一类，所以这里必须排在预设选择之上。 -->
+    <div class="cc-sys">
+      <span class="cc-syslab">流派</span>
+      <div class="tabs cc-dtab" id="ccDialect" title="Anima 交 tag 串（逗号分隔）／ MOSS 交正文（预设开了布局 JSON 就是单行结构化 JSON）。切换会跳到对应类型的预设，列表也跟着换成那一类">
+        <button data-d="anima" class="on">Anima 标签流</button>
+        <button data-d="moss">MOSS 自然语言</button>
+      </div>
+      <span class="cc-sysnote" id="ccSysNote">Anima 交 tag 串；MOSS 交正文（预设开了布局 JSON 就是单行结构化 JSON，固定英文）</span>
+    </div>
+    <div class="drawer-tools">
+      <span class="hint" style="font-size:11.5px;color:var(--muted);flex:none">上下文预设</span>
+      <select id="ccPreset" style="flex:0 1 300px;min-width:180px"></select>
+      <div class="cc-menuwrap">
+        <button class="btn mini" id="ccMenuBtn" title="预设操作：新建 / 保存 / 另存为 / 重命名 / 导入 / 导出 / 删除">⚙</button>
+        <div class="cc-menu" id="ccMenu">
+          <button data-cc="new"><i>＋</i>新建</button>
+          <button data-cc="mossjson" title="从内置模板新建一套「MOSS · 布局JSON」预设：交稿是单行结构化 JSON（summary + items + bbox），不动现有预设"><i>{ }</i>新建布局 JSON 预设</button>
+          <button data-cc="save"><i>✓</i>保存当前</button>
+          <button data-cc="saveas"><i>⧉</i>另存为</button>
+          <button data-cc="rename"><i>✎</i>重命名</button>
+          <button data-cc="import"><i>↓</i>导入预设</button>
+          <button data-cc="export"><i>↑</i>导出预设</button>
+          <button data-cc="exportall"><i>⛁</i>导出全部</button>
+          <button data-cc="delete" class="danger"><i>🗑</i>删除预设</button>
+        </div>
+      </div>
+      <button class="btn mini" id="ccAdd">＋ 添加条目</button>
+      <span class="cc-bulk">
+        <button class="btn mini" id="ccAllOn" title="把列表里的条目全部打开（正在搜索时只作用于匹配项）">全部开启</button>
+        <button class="btn mini" id="ccAllOff" title="把列表里的条目全部关掉（正在搜索时只作用于匹配项）">全部关闭</button>
+      </span>
+      <span class="sp" style="margin-left:auto"></span>
+      <input type="text" id="ccSearch" placeholder="搜条目名 / 内容">
+      <input type="file" id="ccFile" accept=".json" class="hidden">
+    </div>
+    <div class="cc-list" id="ccList"></div>
+
+    <div class="cc-foot">
+      <div class="cc-row">
+        <b>注入位置</b>
+        <label class="switch"><input type="checkbox" id="ccHead"> 系统提示词开头</label>
+        <label class="switch"><input type="checkbox" id="ccTail" checked> 系统提示词末尾</label>
+        <label class="switch"><input type="checkbox" id="ccUser" checked> 用户消息前缀</label>
+      </div>
+      <div class="cc-row">
+        <span class="hint" id="ccHint" style="font-size:11px;color:var(--faint)"></span>
+        <span class="sp" style="margin-left:auto"></span>
+        <button class="btn mini" id="ccPreview">预览本次实际发送</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="drawer" id="drawerCtx">
+  <div class="drawer-card" style="width:min(1040px,96vw)">
+    <div class="drawer-head">
+      <b id="ctxViewTitle">AI 上下文</b>
+      <span class="hint" id="ctxViewStat" style="font-size:11px;color:var(--faint)"></span>
+      <span class="sp"></span>
+      <button class="btn mini" id="btnCtxCopy">复制</button>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-main" style="padding:0">
+      <pre id="ctxViewBody" style="margin:0;padding:14px 16px;white-space:pre-wrap;word-break:break-word;
+        font-family:var(--mono);font-size:12px;line-height:1.75;color:var(--txt)"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- ============ 抽屉：随机组合 ============ -->
+<div class="drawer" id="drawerRnd">
+  <div class="drawer-card" style="width:min(1020px,96vw)">
+    <div class="drawer-head">
+      <b>随机组合出图</b>
+      <span class="hint" id="rndStat" style="font-size:11px;color:var(--faint)">随机角色 × 随机模板</span>
+      <span class="sp"></span>
+      <button class="btn mini" data-close>关闭</button>
+    </div>
+    <div class="drawer-tools">
+      <span class="hint" style="font-size:11.5px;color:var(--muted);flex:none">张数</span>
+      <input type="number" id="rndN" min="1" max="24" style="width:70px;flex:none">
+      <div class="tabs sm" id="rndGender" title="随机角色的性别范围">
+        <button data-g="female">只女</button>
+        <button data-g="male">只男</button>
+        <button data-g="mix" class="on">男女混搭</button>
+      </div>
+      <select id="rndPop" style="flex:0 1 150px;min-width:120px"
+              title="角色取样范围：角色库按 danbooru 热度排序，越靠前越热门（全站 36,488 个）">
+        <option value="500">热门前 500</option>
+        <option value="2000">热门前 2000</option>
+        <option value="8000">热门前 8000</option>
+        <option value="0">全部 36k</option>
+      </select>
+      <label class="switch" title="自动排除「男角色配全女模板」这类性别冲突"><input type="checkbox" id="rndMatch" checked> 模板匹配性别</label>
+      <label class="switch" title="排除 2girls / threesome / group sex 这类多人模板"><input type="checkbox" id="rndSingle"> 仅单人模板</label>
+      <label class="switch" title="角色只带发型/瞳色/耳朵/角/尾巴/体型，服装道具交给模板"><input type="checkbox" id="rndLook" checked> 只取外观</label>
+      <span class="sp" style="margin-left:auto"></span>
+      <button class="btn mini" id="btnRndLockClear" disabled title="把当前列表里所有「🔒」都解开；当前组合不变，下次摇号才全换">解除锁定</button>
+      <button class="btn mini" id="btnRndRoll" title="重新随机一组组合（🔒 锁住的那一半不会变）">🎲 摇一组</button>
+    </div>
+    <div class="drawer-tools feat-bar">
+      <span class="hint" style="font-size:11.5px;color:var(--muted);flex:none">特征</span>
+      <div class="feat-iwrap">
+        <input type="text" id="rndFeatInput" placeholder="红发 / 贫乳 / 眼镜 / fate / 原神 …（tag 或作品名，中英都行）"
+               autocomplete="off" spellcheck="false"
+               title="筛选角色：既认角色标签（红发 / 贫乳 / 眼镜…），也认作品出处（fate / 原神 / 东方…）。↑↓ 选，Enter 加">
+      </div>
+      <div class="tabs sm" id="rndFeatMode" title="多个条件之间：全部满足＝同时具备；任一满足＝有其中一个就行">
+        <button data-m="all" class="on">全部满足</button>
+        <button data-m="any">任一满足</button>
+      </div>
+      <span class="hint" id="rndFeatCount" style="font-size:11px;color:var(--faint);flex:none"></span>
+      <button class="btn mini" id="btnRndFeatClear" disabled title="清空所有筛选条件">清空</button>
+    </div>
+    <div class="feat-chips">
+      <div class="feat-row" id="rndFeatQuick"></div>
+      <div class="feat-row" id="rndFeatPicked"></div>
+    </div>
+    <div class="feat-sug" id="rndFeatSug"></div>
+    <div class="drawer-body">
+      <div class="drawer-main" id="rndList"></div>
+    </div>
+    <div class="cc-foot">
+      <div class="cc-row">
+        <span class="hint" id="rndFoot" style="font-size:11px;color:var(--faint)"></span>
+        <span class="sp" style="margin-left:auto"></span>
+        <button class="btn mini" id="btnRndFill" title="把第 1 组的标签写进右栏（正向标签），方便手改后再出">填回第 1 组</button>
+        <button class="btn go" id="btnRndGo">开始出图</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox" id="lightbox">
+  <button class="lb-nav prev" id="lbPrev" title="上一张（←）">‹</button>
+  <button class="lb-nav next" id="lbNext" title="下一张（→）">›</button>
+  <img id="lbImg" alt="生成结果">
+  <div class="bar"><span id="lbInfo"></span>
+    <button class="btn mini" id="lbBackfill" title="把这张图的提示词与参数填回左侧，方便改一改再出">回填提示词</button>
+    <button class="btn mini" id="lbBackfillReq" title="把这张图出图时填的「需求」和「角色库锁定词」原样填回左侧">回填需求</button>
+    <button class="btn mini" id="lbBackfillLora" title="把这张图实际加载的 LoRA 与权重写回 LoRA 栈（会替换整栈）">回填 LoRA</button>
+    <button class="btn mini" id="lbOpen">新窗口打开</button>
+    <button class="btn mini" id="lbDownload">下载</button>
+    <button class="btn mini" id="lbClose">关闭</button>
+    <div class="lb-lora" id="lbLora" hidden></div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="data/tags.js"></script>
+<script src="data/templates.js"></script>
+<script src="data/presets.js"></script>
+<script src="data/characters.js"></script>
+<script src="data/mosslib.js"></script>
+<script src="data/positions.js"></script>
+<script src="data/filltext.js"></script>
+<!-- 本机填充库：存在就用它当头部填充的默认文本（不进分享版） -->
+<script src="data/local_fill.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

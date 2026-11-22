@@ -1,0 +1,21 @@
+# ---- 本地历史备份（每轮改动留的快照，不入库）----
+*.bak
+*.bak_*
+.backup/
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- 编辑器 / 系统 ----
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini
+.DS_Store
+
+# ---- 运行期产物 ----
+*.log
+node_modules/
